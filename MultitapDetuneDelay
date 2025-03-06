@@ -1,0 +1,211 @@
+desc:Multitap Delay (mono to stereo with delay and widening)
+
+slider1: 0.3  <0.01, 10, .01:log=0.6>  Max Delay length (seconds)
+slider2: 22  <2, 48, 1>    Taps
+slider3: -9  <-60, 0, .001>      Dry (dB)
+slider4: -3  <-60, 0, .001>      Wet (dB)
+slider5: 0.5  <0, 1, .0001>      Feedback
+slider6: 50  <2, 300, .01:log=50>    Vibrato Detune
+slider7: 1  <0.001, 100, .01:log=3 >    Vibrato Speed (Hz)
+slider8: 100  <1, 20000, .1:log=800>    Highpass
+slider11: 8000  <100, 20000, .1:log=800>  Lowpass
+slider12: 0  <0, 12, 1:log=4>    Downsample
+//slider13: 1  <0, 1, 1>      Interpolate
+slider14: -15  <-60, 0, .001>      Compressor Threshold (dB)
+slider15: 10  <1, 5000, .01:log=50>    Compressor Attack (ms)
+slider16: 100  <1, 5000, .01:log=50>    Compressor Release (ms)
+slider17: -1  <-10, 0, .001>  Makeup Gain (dB)
+slider18: 0  <-20, 10, .001>   Brickwall (dB)
+slider19: 0.5  <0.001, 1, 0.001>    Tail
+slider20: 0.1 <0, 1, 0.001>   Stereo Shimmer
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+ext_tail_size = -1;
+T = 0; //increments every sample
+db = 8.65617025;
+phi = 1.61803398875;
+dLen = oldDLen = 13230;
+oldTapsMemMax = 0;
+oldTaps = 0;
+
+function recalcTapsMem()(
+  i=0;loop(taps, //i=oldTaps;loop(taps-oldTaps,
+    //vibSpeeds[i] = 1 / pow(1.618, i*4/taps);
+    vibSpeeds[i] = 1 / pow(phi, i*4/taps);
+    //vibSpeeds[i] = 1.1 + sin((i+7)*9);
+    offsets[i] = dLen*.5 + dLen*.49 * pow(sin(i*8),1);
+    //offsets[i] = offsets[i]|0;
+    playSpeeds[i] = 1;
+    i+=1;
+  );
+  oldTaps = taps;
+);
+
+function initOrSlider()(
+dsp = pow(2,slider12/12);
+//dsp = ceil(dsp * 60) / 60;
+//dsp = floor(dsp * 60) / 60;
+//dsptest = (dsp*60)-(dsp*60|0);
+(dsp*60)-(dsp*60|0) >= .5 ? dsp = ceil(dsp*60)/60 : dsp = floor(dsp*60)/60;
+dLen = floor(slider1 * srate / dsp);
+taps = slider2;
+dry = exp(slider3/dB)/taps;
+wet = exp(slider4/dB)/taps;
+shim = slider20;
+vibSpeedMax = slider7*2*$PI/srate;
+//vibDet = slider6/vibSpeedMax/srate*2*$PI;
+vibDet = slider6*log(taps+1)/vibSpeedMax/srate*4*(.5+shim)/dsp;
+hp = 1-exp(-2*$pi*slider8/srate);
+lp = 1-exp(-2*$pi*slider11/srate);
+tail = slider19;
+thresh = exp(slider14/dB) * tail;
+atk = exp(1000.0/srate/slider15);
+rel = exp(-1000.0/srate/slider16);
+makeup = exp(slider17/dB) / tail / (1+pow(slider5,4)*3);
+bw = exp(slider18/dB);
+//fb = slider5*9/(taps+45);
+fb = slider5/sqrt(taps)*3.8/(4+shim);
+
+//memory address shenanigans
+//0-taps: the taps themselves
+vibSpeeds = taps * 3;
+offsets = taps * 4;
+playSpeeds = taps * 5;
+dbuf = taps * 6;
+
+dbuf > oldTapsMemMax ? (
+  memset(oldTapsMemMax, 0, dbuf-oldTapsMemMax);
+  oldTapsMemMax = dbuf;
+  recalcTapsMem();
+);
+
+dbuf < oldTapsMemMax ? (
+  //memset(dbuf - 1, 0, oldTapsMemMax-dbuf);
+  memcpy(dbuf + (T%dLen), dbuf, oldTapsMemMax - dbuf);
+  oldTapsMemMax = dbuf;
+  //memset(0, 0, dbuf + taps); //scorched earth
+  recalcTapsMem();
+);
+
+dLen > oldDLen ? (
+  memset(oldDLen, 0, dLen-oldDLen);
+  recalcTapsMem();
+);
+oldDLen = dLen;
+out = dbuf+dLen;
+freembuf(out+3);
+);
+
+initOrSlider();
+
+@slider
+
+initOrSlider();
+
+@sample
+
+function lowpass(input freq) (
+  this.sum = this.sum * (1-freq) + input * freq;
+);
+
+function highpass(input freq)(
+  input - this.lowpass(input, freq);
+);
+
+/*
+function lim(input thresh atk rel brickwall makeup)(
+  e = this.env;
+  this.env = min( max( abs(input), e * rel), e * atk);
+  this.env = max( this.env, thresh);
+  o = input * thresh / max(.00001 , this.env);
+  max(min(o*makeup,brickwall),brickwall*-1);
+);
+*/
+
+function env(input thresh atk rel)(
+  e = this.env;
+  this.env = min( max( abs(input), e * rel), e * atk);
+  this.env = max( this.env, thresh);
+);
+
+function lim(input thresh atk rel brickwall makeup)(
+  e = this.env(input, thresh, atk, rel);
+  o = input * thresh / max(.00001 , e);
+  max(min(o*makeup,brickwall),brickwall*-1);
+);
+
+function clip(input thresh)(
+  max(min(input,thresh),thresh*-1);
+);
+
+
+out[0]=spl0*dry;
+out[1]=spl1*dry;
+idx = floor(T/dsp)%dLen;
+
+dbuf[idx] += (spl0+spl1) * .5;
+dbuf[idx] = preComp.lim(dbuf[idx], thresh, atk, rel, 1000, 1);
+//dbuf[idx] = preHp.highpass(dbuf[idx],hp);
+//dbuf[idx] = preLp.lowpass(dbuf[idx],lp);
+
+i=0; loop(taps,
+  ///*
+  taps[i] = dbuf[floor(
+    T/dsp + dLen + offsets[i] + vibDet * (1 + sin(T*vibSpeedMax*vibSpeeds[i]))
+  )%dLen];
+  //*/
+  /*
+  idx2 = T/dsp + dLen + offsets[i] + vibDet * (1 + sin(T*vibSpeedMax*vibSpeeds[i]));
+  idxtest = (idx2 - floor(idx2)); //DEBUG
+  taps[i] += dbuf[floor(idx2)%dLen] * min(1,1 - idx2 + floor(idx2));
+  taps[i] += dbuf[ceil(idx2)%dLen] * min(1,idx2 - floor(idx2));
+  */
+  taps[i] *= (1 + shim*.798) * (1 - shim*sqrt(abs(cos(T*vibSpeedMax*vibSpeeds[i]))));
+  //taps[i] *= (1 + shim*.637) * (1 - shim*abs(cos(T*vibSpeedMax*vibSpeeds[i])));
+  taps[i] = tapLp.lowpass(taps[i], 1-shim + shim*sqr(abs(sin(T*vibSpeedMax*vibSpeeds[i])))); //mushes all the taps together
+  //taps[i] *= (1 + shim*.25) * (1-shim + shim*min(1,2*abs(sin(T*vibSpeedMax*vibSpeeds[i]))));
+///*
+  i += 1;
+);
+//dbuf[idx] *= .5;
+i=0; loop(taps,
+//*/
+  out[i%2] += taps[i]*wet*taps;
+  dbuf[idx] = clip(dbuf[idx] + taps[i] * fb / makeup, bw*(1+i*.25));
+  //dbuf[idx] = clip(dbuf[idx] + taps[i] * fb / makeup, bw);
+  //dbuf[idx] += taps[i] * fb / makeup * (1-pow(abs(cos(T*vibSpeedMax*vibSpeeds[i])),1));
+  i += 1;
+);
+
+//dbuf[idx] = fbComp.lim( dbuf[idx], thresh, atk, rel, 100, makeup);
+pe = postEnv.env( spl0+spl1, .0001, atk, rel);
+pe = pe * (1-tail) + tail;
+dbuf[idx] = fbComp.lim( dbuf[idx], thresh, atk, rel, 1000, makeup * pe);
+dbuf[idx] = fbhp.highpass(dbuf[idx], hp);
+dbuf[idx] = fblp.lowpass(dbuf[idx], lp);
+
+T += 1;
+//T %= dLen * 32;
+out[0] -= out[1] * shim/4; out[1] -= out[0] * shim/4;
+spl0=out[0];spl1=out[1];
+//spl0=lp0.lowpass(out[0],lp);
+//spl1=lp1.lowpass(out[1],lp);
+
+/* TEST:
+spl0=lp1.lowpass(spl0,lp);
+spl0=hp1.highpass(spl0,hp);
+spl0=lm1.lim(spl0*1,.05,atk,rel,1,10);
+spl1=lp2.lowpass(spl1,lp);
+spl1=hp2.highpass(spl1,hp);
+spl1=lm2.lim(spl1*1,.05,atk,rel,1,10);
+*/
+
+
+//spl0=highpass(lowpass(spl0,lp,lps[0]),hp,hps[0]);
+//spl1=highpass(lowpass(spl1,lp,lps[1]),hp,hps[1]);
+
