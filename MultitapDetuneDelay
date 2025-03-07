@@ -129,10 +129,10 @@ function clip(input thresh)(
 
 out[0]=spl0*dry;
 out[1]=spl1*dry;
-idx = floor(T/dsp)%dLen;
 dsplerp = .5;
 0|((T-1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
 0|((T+1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
+idx = floor(T/dsp)%dLen;
 dbuf[idx] += (spl0+spl1) * dsplerp;
 dbuf[idx] = preComp.lim(dbuf[idx], thresh, atk, rel, 1000, 1);
 
