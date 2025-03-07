@@ -5,7 +5,7 @@ slider2: 22  <2, 48, 1>    Taps
 slider3: -9  <-60, 0, .001>      Dry (dB)
 slider4: -3  <-60, 0, .001>      Wet (dB)
 slider5: 0.5  <0, 1, .0001>      Feedback
-slider6: 50  <2, 300, .01:log=50>    Vibrato Detune
+slider6: 50  <2, 150, .01:log=50>    Vibrato Detune
 slider7: 1  <0.001, 100, .01:log=3 >    Vibrato Speed (Hz)
 slider8: 100  <1, 20000, .1:log=800>    Highpass
 slider11: 8000  <100, 20000, .1:log=800>  Lowpass
@@ -60,7 +60,7 @@ shim = slider20;
 vibSpeedMax = slider7*2*$PI/srate;
 //vibDet = slider6/vibSpeedMax/srate*2*$PI;
 //vibDet = slider6*log(taps+1)/vibSpeedMax/srate*4*(.5+shim)/dsp;
-vibDet = slider6*log(taps+1)/vibSpeedMax/srate*2/dsp;
+vibDet = slider6*log(taps+1)*4/vibSpeedMax/srate*2/dsp;
 hp = 1-exp(-2*$pi*slider8/srate);
 lp = 1-exp(-2*$pi*slider11/srate);
 tail = slider19;
@@ -71,7 +71,7 @@ rel = exp(-1000.0/srate/slider16);
 makeup = exp(slider17/dB) / tail / (1+pow(slider5,4)*3);
 bw = exp(slider18/dB);
 //fb = slider5*9/(taps+45);
-fb = slider5/sqrt(taps)*3.8/(4+shim);
+fb = slider5/sqrt(taps)*3.8/(4+shim)/dsp;
 
 //memory address shenanigans
 //0-taps: the taps themselves
@@ -150,7 +150,12 @@ out[0]=spl0*dry;
 out[1]=spl1*dry;
 idx = floor(T/dsp)%dLen;
 
-dbuf[idx] += (spl0+spl1) * .5;
+//dsplerp = 0|((T+1)/dsp) == 0|(T/dsp) || 0|((T-1)/dsp) == 0|(T/dsp) ? .25 : .5;
+dsplerp = .5;
+0|((T-1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
+0|((T+1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
+//0|((T-1)/dsp) == 0|(T/dsp) ? dsplerp = 0;
+dbuf[idx] += (spl0+spl1) * dsplerp;
 dbuf[idx] = preComp.lim(dbuf[idx], thresh, atk, rel, 1000, 1);
 //dbuf[idx] = preHp.highpass(dbuf[idx],hp);
 //dbuf[idx] = preLp.lowpass(dbuf[idx],lp);
@@ -188,6 +193,7 @@ dbuf[idx] = fblp.lowpass(dbuf[idx], lp);
 T += 1;
 //T %= dLen * 32;
 out[0] -= out[1] * shim/2; out[1] -= out[0] * shim/2;
+out[0] *= 1 + shim/4; out[1] *= 1 + shim/4;
 spl0=out[0];spl1=out[1];
 //spl0=lp0.lowpass(out[0],lp);
 //spl1=lp1.lowpass(out[1],lp);
