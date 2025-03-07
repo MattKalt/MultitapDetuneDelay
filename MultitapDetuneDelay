@@ -37,8 +37,6 @@ function recalcTapsMem()(
   i=0;loop(taps, //i=oldTaps;loop(taps-oldTaps,
     vibSpeeds[i] = 1 / pow(phi, i*4/taps);
     offsets[i] = dLen*.5 + dLen*.49 * pow(sin(i*8),1);
-    //playSpeeds[i] = oct * ((i/oct) - (0|(i/oct))) > oct - 3 ? 2 : 1;
-    //playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
     playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
     i+=1;
   );
@@ -64,7 +62,7 @@ rel = exp(-1000.0/srate/slider16);
 makeup = exp((slider17+2*hp/lp/(slider5+.25))/dB) / tail / (1+pow(slider5,4)*3);
 bw = exp(slider18/dB)*2/(1+taps/8);
 fb = slider5/sqrt(taps)/tail/sqrt(dsp);
-oct = (300/slider20) - 3/taps;
+oct = 400/slider20 - 2;
 
 //memory address shenanigans
 //0-taps: the taps themselves
