@@ -17,7 +17,7 @@ slider16: 100  <1, 5000, .01:log=50>    Compressor Release (ms)
 slider17: -.25  <-10, 0, .001>  Makeup Gain (dB)
 slider18: 0  <-20, 10, .001>   Brickwall (dB)
 slider19: 0.9  <0.001, 1, 0.001:log=.75>    Tail
-slider20: 0.1 <0, 1, 0.001>   Stereo Shimmer
+slider20: 1 <1, 100, 1:log=25>   Octaves (% of taps)
 
 in_pin:left input
 in_pin:right input
@@ -37,7 +37,9 @@ function recalcTapsMem()(
   i=0;loop(taps, //i=oldTaps;loop(taps-oldTaps,
     vibSpeeds[i] = 1 / pow(phi, i*4/taps);
     offsets[i] = dLen*.5 + dLen*.49 * pow(sin(i*8),1);
-    playSpeeds[i] = 1;
+    //playSpeeds[i] = oct * ((i/oct) - (0|(i/oct))) > oct - 3 ? 2 : 1;
+    //playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
+    playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
     i+=1;
   );
   oldTaps = taps;
@@ -48,9 +50,8 @@ dsp = pow(2,slider12/12);
 (dsp*60)-(dsp*60|0) > .5 ? dsp = ceil(dsp*60)/60 : dsp = floor(dsp*60)/60;
 dLen = floor(slider1 * srate / dsp);
 taps = slider2;
-dry = exp(slider3/dB)/taps;
+dry = exp(slider3/dB);
 wet = exp(slider4/dB)/taps;
-shim = slider20;
 vibSpeedMax = slider7*2*$PI/srate;
 vibDet = slider6*log(taps+1)/vibSpeedMax/srate*6/dsp;
 hp = 1-exp(-2*$pi*slider8/srate);
@@ -60,9 +61,10 @@ lerp = slider13;
 thresh = exp(slider14/dB) * tail;
 atk = exp(1000.0/srate/slider15);
 rel = exp(-1000.0/srate/slider16);
-makeup = exp((slider17+8*hp/lp)/dB) / tail / (1+pow(slider5,4)*3);
+makeup = exp((slider17+2*hp/lp/(slider5+.25))/dB) / tail / (1+pow(slider5,4)*3);
 bw = exp(slider18/dB)*2/(1+taps/8);
-fb = slider5/sqrt(taps)*3.8/(4+shim)/tail/sqrt(dsp);
+fb = slider5/sqrt(taps)/tail/sqrt(dsp);
+oct = (300/slider20) - 3/taps;
 
 //memory address shenanigans
 //0-taps: the taps themselves
@@ -82,13 +84,14 @@ dbuf < oldTapsMemMax ? (
   memcpy(dbuf + (T%dLen), dbuf, oldTapsMemMax - dbuf);
   oldTapsMemMax = dbuf;
   //memset(0, 0, dbuf + taps); //scorched earth
-  recalcTapsMem();
+  //recalcTapsMem();
 );
 
 dLen > oldDLen ? (
   memset(oldDLen, 0, dLen-oldDLen);
-  recalcTapsMem();
+  //recalcTapsMem();
 );
+recalcTapsMem();
 oldDLen = dLen;
 out = dbuf+dLen;
 freembuf(out+3);
@@ -144,9 +147,6 @@ i=0; loop(taps,
   idx2 = T/dsp * playSpeeds[i] + dLen + offsets[i] + vibDet * (1 + sin(T*vibSpeedMax*vibSpeeds[i]));
   taps[i] += dbuf[floor(idx2)%dLen] * min(1,1 - lerp * (idx2 - floor(idx2)));
   taps[i] += dbuf[ceil(idx2)%dLen] * min(1,idx2 - floor(idx2)) * lerp;
-
-  taps[i] = tapLp.lowpass(taps[i], 1-shim + shim*sqr(abs(cos(T*vibSpeedMax*vibSpeeds[i])))); //mushes all the taps together
-  taps[i] *= (1 + shim*.798) * (1 - shim*sqrt(abs(cos(T*vibSpeedMax*vibSpeeds[i]))));
   i += 1;
 );
 i=0; loop(taps,
@@ -160,6 +160,5 @@ dbuf[idx] = fbhp.highpass(dbuf[idx], hp);
 dbuf[idx] = fblp.lowpass(dbuf[idx], lp);
 
 T += 1;
-out[0] -= out[1] * shim/2; out[1] -= out[0] * shim/2;
 spl0=out[0];spl1=out[1];
 
