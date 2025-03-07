@@ -8,7 +8,9 @@ slider5: 0.5  <0, 1, .0001>      Feedback
 slider6: 50  <2, 300, .01:log=50>    Vibrato Detune
 slider7: 1  <0.001, 100, .01:log=3 >    Vibrato Speed (Hz)
 slider8: 100  <1, 20000, .1:log=800>    Highpass
-slider11: 8000  <100, 20000, .1:log=800>  Lowpass
+slider9: 8000  <100, 20000, .1:log=800>   Lowpass
+slider10: 8000  <100, 20000, .1:log=800>  Lowpass (taps)
+slider11: 8000  <100, 20000, .1:log=800>  Lowpass (feedback)
 slider12: 0  <0, 12, 1:log=4>    Downsample
 //slider13: 1  <0, 1, 1>      Interpolate
 slider14: -15  <-60, 0, .001>      Compressor Threshold (dB)
@@ -48,9 +50,6 @@ function recalcTapsMem()(
 
 function initOrSlider()(
 dsp = pow(2,slider12/12);
-//dsp = ceil(dsp * 60) / 60;
-//dsp = floor(dsp * 60) / 60;
-//dsptest = (dsp*60)-(dsp*60|0);
 (dsp*60)-(dsp*60|0) >= .5 ? dsp = ceil(dsp*60)/60 : dsp = floor(dsp*60)/60;
 dLen = floor(slider1 * srate / dsp);
 taps = slider2;
@@ -59,9 +58,12 @@ wet = exp(slider4/dB)/taps;
 shim = slider20;
 vibSpeedMax = slider7*2*$PI/srate;
 //vibDet = slider6/vibSpeedMax/srate*2*$PI;
-vibDet = slider6*log(taps+1)/vibSpeedMax/srate*4*(.5+shim)/dsp;
+//vibDet = slider6*log(taps+1)/vibSpeedMax/srate*4*(.5+shim)/dsp;
+vibDet = slider6*log(taps+1)/vibSpeedMax/srate*2/dsp;
 hp = 1-exp(-2*$pi*slider8/srate);
-lp = 1-exp(-2*$pi*slider11/srate);
+postlp = 1-exp(-2*$pi*slider9/srate);
+lp = 1-exp(-2*$pi*slider10/srate);
+lpfb = 1-exp(-2*$pi*slider11/srate);
 tail = slider19;
 thresh = exp(slider14/dB) * tail;
 atk = exp(1000.0/srate/slider15);
@@ -165,10 +167,13 @@ i=0; loop(taps,
   taps[i] += dbuf[floor(idx2)%dLen] * min(1,1 - idx2 + floor(idx2));
   taps[i] += dbuf[ceil(idx2)%dLen] * min(1,idx2 - floor(idx2));
   */
-  taps[i] *= (1 + shim*.798) * (1 - shim*sqrt(abs(cos(T*vibSpeedMax*vibSpeeds[i]))));
-  //taps[i] *= (1 + shim*.637) * (1 - shim*abs(cos(T*vibSpeedMax*vibSpeeds[i])));
-  taps[i] = tapLp.lowpass(taps[i], 1-shim + shim*sqr(abs(sin(T*vibSpeedMax*vibSpeeds[i])))); //mushes all the taps together
+  //taps[i] *= (1 + shim*.798) * (1 - shim*sqrt(abs(cos(T*vibSpeedMax*vibSpeeds[i]))));
+  //taps[i] *= (1 - shim * sin($PI + T*vibSpeedMax*vibSpeeds[i]));
   //taps[i] *= (1 + shim*.25) * (1-shim + shim*min(1,2*abs(sin(T*vibSpeedMax*vibSpeeds[i]))));
+  //taps[i] *= (1 + shim*.637) * (1 - shim*abs(cos(T*vibSpeedMax*vibSpeeds[i])));
+  //taps[i] = tapLp.lowpass(taps[i], 1-shim + shim*sqr(abs(sin($PI * .0 + T*vibSpeedMax*vibSpeeds[i])))); //mushes all the taps together
+  //taps[i] = tapLp.lowpass(taps[i], lp);
+  taps[i] = leftLp.lowpass(taps[i], i%2 ? 1 : lp); taps[i] = rightLp.lowpass(taps[i], i%2 ? lp : 1);
 ///*
   i += 1;
 );
@@ -187,11 +192,13 @@ pe = postEnv.env( spl0+spl1, .0001, atk, rel);
 pe = pe * (1-tail) + tail;
 dbuf[idx] = fbComp.lim( dbuf[idx], thresh, atk, rel, 1000, makeup * pe);
 dbuf[idx] = fbhp.highpass(dbuf[idx], hp);
-dbuf[idx] = fblp.lowpass(dbuf[idx], lp);
+dbuf[idx] = fblp.lowpass(dbuf[idx], lpfb);
 
 T += 1;
 //T %= dLen * 32;
 out[0] -= out[1] * shim/4; out[1] -= out[0] * shim/4;
+out[0] = leftPostLp.lowpass(out[0], postlp);
+out[1] = rightPostLp.lowpass(out[1], postlp);
 spl0=out[0];spl1=out[1];
 //spl0=lp0.lowpass(out[0],lp);
 //spl1=lp1.lowpass(out[1],lp);
