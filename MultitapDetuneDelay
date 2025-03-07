@@ -60,34 +60,35 @@ thresh = exp(slider14/dB) * tail;
 atk = exp(1000.0/srate/slider15);
 rel = exp(-1000.0/srate/slider16);
 makeup = exp((slider17+2*hp/lp/(slider5+.25))/dB) / tail / (1+pow(slider5,4)*3);
-bw = exp(slider18/dB)*2/(1+taps/8);
-fb = slider5/sqrt(taps)/tail/sqrt(dsp);
+bw = exp(slider18/dB);
+fb = slider5/sqrt(taps)/tail/sqrt(dsp)/makeup;
 oct = 400/slider20 - 2;
 
 //memory address shenanigans
 //0-taps: the taps themselves
-vibSpeeds = taps * 3;
-offsets = taps * 4;
+offsets = taps * 3;
+vibSpeeds = taps * 4;
 playSpeeds = taps * 5;
 dbuf = taps * 6;
 
 dbuf > oldTapsMemMax ? (
-  memset(oldTapsMemMax, 0, dbuf-oldTapsMemMax);
+  memset(0, 0, oldTapsMemMax);
+  memset(oldTapsMemMax + dLen, 0, 4); //remove previous out[]
+  preComp.env = fbComp.env = exp(rel/2*min(8,taps-oldTaps));
+  fblp.sum = fbhp.sum = 0;
   oldTapsMemMax = dbuf;
-  recalcTapsMem();
 );
 
 dbuf < oldTapsMemMax ? (
-  //memset(dbuf - 1, 0, oldTapsMemMax-dbuf);
-  memcpy(dbuf + (T%dLen), dbuf, oldTapsMemMax - dbuf);
+  memcpy(dbuf, dbuf + (T%dLen), oldTapsMemMax - dbuf + taps * 6);
   oldTapsMemMax = dbuf;
-  //memset(0, 0, dbuf + taps); //scorched earth
-  //recalcTapsMem();
+  preComp.env = fbComp.env = exp(rel/2*(oldTaps-taps));
+  fblp.sum = fbhp.sum = 0;
+  oldTapsMemMax = dbuf;
 );
 
 dLen > oldDLen ? (
   memset(oldDLen, 0, dLen-oldDLen);
-  //recalcTapsMem();
 );
 recalcTapsMem();
 oldDLen = dLen;
@@ -145,11 +146,13 @@ i=0; loop(taps,
   idx2 = T/dsp * playSpeeds[i] + dLen + offsets[i] + vibDet * (1 + sin(T*vibSpeedMax*vibSpeeds[i]));
   taps[i] += dbuf[floor(idx2)%dLen] * min(1,1 - lerp * (idx2 - floor(idx2)));
   taps[i] += dbuf[ceil(idx2)%dLen] * min(1,idx2 - floor(idx2)) * lerp;
+  taps[i] = clip(taps[i],bw);
   i += 1;
 );
 i=0; loop(taps,
   out[i%2] += taps[i]*wet*taps;
   dbuf[idx] = clip(dbuf[idx] + taps[i] * denv * fb / makeup, bw*(1+i*.25));
+  //dbuf[ifx] = taps[i] * denv * fb;
   i += 1;
 );
 
