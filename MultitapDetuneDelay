@@ -14,7 +14,7 @@ slider13: 1  <0, 1, .001>      Interpolate
 slider14: -15  <-60, 0, .001>      Compressor Threshold (dB)
 slider15: 10  <1, 5000, .01:log=50>    Compressor Attack (ms)
 slider16: 100  <1, 5000, .01:log=50>    Compressor Release (ms)
-slider17: -1  <-10, 0, .001>  Makeup Gain (dB)
+slider17: -.25  <-10, 0, .001>  Makeup Gain (dB)
 slider18: 0  <-20, 10, .001>   Brickwall (dB)
 slider19: 0.5  <0.001, 1, 0.001>    Tail
 slider20: 0.1 <0, 1, 0.001>   Stereo Shimmer
@@ -60,7 +60,7 @@ lerp = slider13;
 thresh = exp(slider14/dB) * tail;
 atk = exp(1000.0/srate/slider15);
 rel = exp(-1000.0/srate/slider16);
-makeup = exp(slider17/dB) / tail / (1+pow(slider5,4)*3);
+makeup = exp((slider17+8*hp/lp)/dB) / tail / (1+pow(slider5,4)*3);
 bw = exp(slider18/dB);
 fb = slider5/sqrt(taps)*3.8/(4+shim);
 
