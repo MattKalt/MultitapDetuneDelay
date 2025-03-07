@@ -16,7 +16,7 @@ slider15: 10  <1, 5000, .01:log=50>    Compressor Attack (ms)
 slider16: 100  <1, 5000, .01:log=50>    Compressor Release (ms)
 slider17: -.25  <-10, 0, .001>  Makeup Gain (dB)
 slider18: 0  <-20, 10, .001>   Brickwall (dB)
-slider19: 0.5  <0.001, 1, 0.001>    Tail
+slider19: 0.9  <0.001, 1, 0.001:log=.75>    Tail
 slider20: 0.1 <0, 1, 0.001>   Stereo Shimmer
 
 in_pin:left input
@@ -61,8 +61,8 @@ thresh = exp(slider14/dB) * tail;
 atk = exp(1000.0/srate/slider15);
 rel = exp(-1000.0/srate/slider16);
 makeup = exp((slider17+8*hp/lp)/dB) / tail / (1+pow(slider5,4)*3);
-bw = exp(slider18/dB);
-fb = slider5/sqrt(taps)*3.8/(4+shim);
+bw = exp(slider18/dB)*2/(1+taps/8);
+fb = slider5/sqrt(taps)*3.8/(4+shim)/tail/sqrt(dsp);
 
 //memory address shenanigans
 //0-taps: the taps themselves
@@ -129,6 +129,9 @@ function clip(input thresh)(
 
 out[0]=spl0*dry;
 out[1]=spl1*dry;
+denv = dryEnv.env( spl0+spl1, .0001, atk, rel);
+denv = denv * (1-tail) + tail;
+
 dsplerp = .5;
 0|((T-1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
 0|((T+1)/dsp) == 0|(T/dsp) ? dsplerp /= 2;
@@ -148,13 +151,11 @@ i=0; loop(taps,
 );
 i=0; loop(taps,
   out[i%2] += taps[i]*wet*taps;
-  dbuf[idx] = clip(dbuf[idx] + taps[i] * fb / makeup, bw*(1+i*.25));
+  dbuf[idx] = clip(dbuf[idx] + taps[i] * denv * fb / makeup, bw*(1+i*.25));
   i += 1;
 );
 
-pe = postEnv.env( spl0+spl1, .0001, atk, rel);
-pe = pe * (1-tail) + tail;
-dbuf[idx] = fbComp.lim( dbuf[idx], thresh, atk, rel, 1000, makeup * pe);
+dbuf[idx] = fbComp.lim( dbuf[idx] * makeup * denv, thresh, atk, rel, 1000, 1);
 dbuf[idx] = fbhp.highpass(dbuf[idx], hp);
 dbuf[idx] = fblp.lowpass(dbuf[idx], lp);
 
