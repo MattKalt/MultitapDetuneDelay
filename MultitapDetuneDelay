@@ -37,7 +37,10 @@ function recalcTapsMem()(
   i=0;loop(taps, //i=oldTaps;loop(taps-oldTaps,
     vibSpeeds[i] = 1 / pow(phi, i*4/taps);
     offsets[i] = dLen*.5 + dLen*.49 * pow(sin(i*8),1);
-    playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
+    // only octave up:
+    //playSpeeds[i] = i % oct > oct - 3 ? 2 : 1;
+    // alternating octave up and 5th down:
+    playSpeeds[i] = i % oct > oct - 3 ? i % oct == i % (oct * 2) ? 2 : 0.75 : 1;
     i+=1;
   );
   oldTaps = taps;
@@ -54,15 +57,20 @@ vibSpeedMax = slider7*2*$PI/srate;
 vibDet = slider6*log(taps+1)/vibSpeedMax/srate*6/dsp;
 hp = 1-exp(-2*$pi*slider8/srate);
 lp = 1-exp(-2*$pi*slider11/srate);
+atk = exp(1000.0/srate/slider15);
+rel = exp(-1000.0/srate/slider16);
+//slider19 = min(slider19, 1 + log(1.05 - slider5)/5); //decrease tail to avoid infinite feedback
+slider19 = min(slider19, 1 + log(1.1 - slider5)/4); //decrease tail to avoid infinite feedback
+sliderchange(19);
 tail = slider19;
 lerp = slider13;
 thresh = exp(slider14/dB) * tail;
-atk = exp(1000.0/srate/slider15);
-rel = exp(-1000.0/srate/slider16);
 makeup = exp((slider17+2*hp/lp/(slider5+.25))/dB) / tail / (1+pow(slider5,4)*3);
 bw = exp(slider18/dB);
 fb = slider5/sqrt(taps)/tail/sqrt(dsp)/makeup;
-oct = 400/slider20 - 2;
+//oct = 400/slider20 - 2;
+oct = 200/slider20 + 2;
+octvol = 1/64/oct/(fb+1/64);
 
 //memory address shenanigans
 //0-taps: the taps themselves
@@ -147,12 +155,12 @@ i=0; loop(taps,
   taps[i] += dbuf[floor(idx2)%dLen] * min(1,1 - lerp * (idx2 - floor(idx2)));
   taps[i] += dbuf[ceil(idx2)%dLen] * min(1,idx2 - floor(idx2)) * lerp;
   taps[i] = clip(taps[i],bw);
+  taps[i] = tapLp.lowpass(taps[i], (5 - playSpeeds[i]) * .25); //mushes taps together
   i += 1;
 );
 i=0; loop(taps,
-  out[i%2] += taps[i]*wet*taps;
+  out[i%2] += taps[i]*wet*taps * (playSpeeds[i] == 1 ? 1 : octvol);
   dbuf[idx] = clip(dbuf[idx] + taps[i] * denv * fb / makeup, bw*(1+i*.25));
-  //dbuf[ifx] = taps[i] * denv * fb;
   i += 1;
 );
 
